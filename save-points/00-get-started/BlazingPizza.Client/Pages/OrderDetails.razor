@@ -1,0 +1,94 @@
+﻿@page "/myorders/{orderId:int}"
+@using System.Threading
+@inject HttpClient HttpClient
+@implements IDisposable
+
+
+
+<div class="main">
+    @if (invalidOrder)
+    {
+        <h2>Nope</h2>
+        <p>Sorry, this order could not be loaded.</p>
+
+    }
+    else if (orderWithStatus == null)
+    {
+        <text>Loading...</text>
+    }
+    else
+    {
+        <div class="track-order">
+            <div class="track-order-title">
+                <h2>
+                    Order placed @orderWithStatus.Order.CreatedTime.ToLongDateString()
+                </h2>
+                <p class="ml-auto mb-0">
+                    Status: <string>@orderWithStatus.StatusText</string>
+                </p>
+            </div>
+            <div class="track-order-body">
+                <div class="track-order-details">
+                    <OrderReview Order="orderWithStatus.Order"></OrderReview>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int OrderId { get; set; }
+
+    OrderWithStatus orderWithStatus;
+    bool invalidOrder;
+    CancellationTokenSource pollingCancellationToken;
+
+    protected override void OnParametersSet()
+    {
+        // If we were already polling for a different orderm stop doing so
+        pollingCancellationToken?.Cancel();// '?' 이거 뭐임? 문맥상 해당토큰이 있는지 확인하고 있으면 .Cancel()이 작동하는거 같은데 신기술인가
+
+        // Start a new poll loop
+        PollForUpdates();
+    }
+
+    private async void PollForUpdates()
+    {
+        pollingCancellationToken = new CancellationTokenSource();
+        while (!pollingCancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                invalidOrder = false;
+                orderWithStatus = await HttpClient.GetFromJsonAsync<OrderWithStatus>($"orders/{OrderId}");
+                StateHasChanged();
+                /*
+                 StateHasChanged(); Blazor에 구성 요소의 데이터가 변경되었을 수 있음을 알리려면 StateHasChanged를 호출해야합니다.
+                 그런 다음 프레임 워크는 컴포넌트를 다시 렌더링합니다.
+                 폴링 로직에 대해 알지 못하므로 프레임 워크가 컴포넌트를 다시 렌더링 할시기를 알 수있는 방법이 없습니다.
+                */
+                if (orderWithStatus.IsDelivered)
+                {
+                    pollingCancellationToken.Cancel();
+                }
+                else
+                {
+                    await Task.Delay(4000); // 4000ms -> 4초
+                }
+            }
+            catch (Exception ex)
+            {
+                invalidOrder = true;
+                pollingCancellationToken.Cancel();
+                Console.Error.WriteLine(ex);
+                StateHasChanged();
+            }
+        }
+
+    }
+    void IDisposable.Dispose()
+    {
+        pollingCancellationToken?.Cancel();
+    }
+}
